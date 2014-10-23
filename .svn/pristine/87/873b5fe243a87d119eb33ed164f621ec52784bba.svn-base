@@ -1,0 +1,83 @@
+package at.ac.univie.knasmueller.hulk;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.PrintStream;
+
+import at.cibiv.ngs.tools.fasta.FastaTools;
+import at.cibiv.ngs.tools.util.FileUtils;
+
+/**
+ * Creates a ranomd sequence
+ * 
+ * @author niko.popitsch@univie.ac.at
+ * 
+ */
+public class RandomCreationEvent extends GenAmbEvent {
+
+	private int length;
+	private int chroms;
+
+	public RandomCreationEvent(File tempDir, int length, int chroms, ILogger iLogger) {
+		super("create", null, tempDir, iLogger);
+		this.length = length;
+		this.chroms = chroms;
+	}
+
+	@Override
+	public Object processSequence() throws IOException {
+		File resultFile = createTempFile();
+		PrintStream out = new PrintStream(resultFile);
+		FastaTools.createRandomFasta(length, chroms, out);
+		return resultFile;
+	}
+
+	public static void main(String[] args) throws IOException {
+
+		File tmp = new File("/project/oesi/genAmb/test/temp-test/artificial-tests/");
+
+		File plain = new File("/project/oesi/genAmb/test/artificial-genomes-test/plain.fa");
+		File oldNgm = new File(plain.getAbsolutePath() + "-enc.ngm");
+		if (oldNgm.exists())
+			oldNgm.delete();
+		File oldNgm2 = new File(plain.getAbsolutePath() + "-ht-13-2.ngm");
+		if (oldNgm2.exists())
+			oldNgm2.delete();
+		RandomCreationEvent e = new RandomCreationEvent(tmp, 5000, 2);
+		File tf = (File) e.processSequence();
+		tf.renameTo(plain);
+		System.out.println("Wrote " + plain);
+
+		File twoseq = new File("/project/oesi/genAmb/test/artificial-genomes-test/two-exact-copies.fa");
+		oldNgm = new File(twoseq.getAbsolutePath() + "-enc.ngm");
+		if (oldNgm.exists())
+			oldNgm.delete();
+		oldNgm2 = new File(twoseq.getAbsolutePath() + "-ht-13-2.ngm");
+		if (oldNgm2.exists())
+			oldNgm2.delete();		
+		org.apache.commons.io.FileUtils.copyFile(plain, twoseq);
+
+		CopyEvent ce = new CopyEvent(twoseq, tmp, new RandomPosition(twoseq), 200);
+		File motif = (File) ce.processSequence();
+		PasteEvent pe = new PasteEvent(twoseq, motif, tmp, new RandomPosition(twoseq));
+		tf = (File) pe.processSequence();
+		tf.renameTo(twoseq);
+		motif.delete();
+
+		// ce = new CopyEvent(twoseq, tmp, new RandomPosition(twoseq), 50);
+		// motif = (File) ce.processSequence();
+		// pe = new PasteEvent(twoseq, motif, tmp, new RandomPosition(twoseq));
+		// tf = (File) pe.processSequence();
+		// tf.renameTo(twoseq);
+		// motif.delete();
+
+		// ce = new CopyEvent(twoseq, tmp, new RandomPosition(twoseq), 50);
+		// motif = (File) ce.processSequence();
+		// pe = new PasteEvent(twoseq, motif, tmp, new RandomPosition(twoseq));
+		// tf = (File) pe.processSequence();
+		// tf.renameTo(twoseq);
+		// motif.delete();
+
+	}
+
+}

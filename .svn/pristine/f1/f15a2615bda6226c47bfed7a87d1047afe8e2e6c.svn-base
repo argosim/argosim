@@ -1,0 +1,101 @@
+package hulk;
+
+import static org.junit.Assert.assertEquals;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.List;
+
+import org.junit.After;
+import org.junit.Before;
+import org.junit.Test;
+
+import at.ac.univie.knasmueller.hulk.BedInformation;
+import at.ac.univie.knasmueller.hulk.CopyEvent;
+import at.ac.univie.knasmueller.hulk.HulkFile;
+import at.ac.univie.knasmueller.hulk.HulkProject;
+import at.ac.univie.knasmueller.hulk.HulkVcfFile;
+import at.ac.univie.knasmueller.hulk.SpecifiedPosition;
+import at.ac.univie.knasmueller.hulk.BedInformation.BedMode;
+
+public class HulkProjectTest {
+
+	@Before
+	public void setUp() throws Exception {
+	}
+
+	@After
+	public void tearDown() throws Exception {
+	}
+
+	@Test
+	public void test() {
+		HulkProject p = new HulkProject("/tmp/", new File(
+				"/project/bakk/testRuns/test_2014-07-14-v2"));
+
+		HulkFile testGenome;
+		try {
+			testGenome = new HulkFile(p, new File(
+					"/project/bakk/genomes-test/ecoli2-test.fa"));
+			testGenome.save("original_fragment");
+
+			HulkFile copiedFragment = testGenome.copy(new SpecifiedPosition(
+					testGenome.getFileAbs(), "chr2", 0), 10);
+			System.out.println("Copied Fragment: "
+					+ copiedFragment.getFileAbs());
+
+			copiedFragment.save("myFragment");
+			System.out.println("saved 'myFragment'");
+			/* mutation test: */
+
+			HulkFile mutatedGenome = testGenome.mutate(0.2);
+			mutatedGenome.save("myMutatedGenomeXX1");
+
+			System.out
+					.println("saved 'myMutatedGenomeXX1' (mutation probability = 0.2)");
+
+			HulkVcfFile myVcf = new HulkVcfFile(new File(
+					"/project/bakk/vcf/experimental_tiny_with_frequencies.vcf"));
+			HulkFile mutatedGenome2 = testGenome.mutate(myVcf);
+			mutatedGenome2.save("myMutatedGenomeXX2");
+
+			HulkFile testWithFragment = testGenome.insert(copiedFragment,
+					new SpecifiedPosition(new File(
+							"/project/bakk/genomes-test/ecoli2-test.fa"),
+							"chr1", 0));
+
+			System.out.println("Test with Fragment: "
+					+ testWithFragment.getFileAbs());
+			System.out.println("Try to move file to result..."
+					+ p.getResultDir());
+			testWithFragment.save("testWithFragment");
+			p.close();
+		} catch (IOException e) {
+			e.printStackTrace();
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
+	}
+
+	@Test
+	public void test_processSequence_restrictToBed() throws Exception {
+
+		HulkProject p = new HulkProject("/tmp/", new File(
+				"/project/bakk/testRuns/test_2014-07-21"));
+
+		HulkFile testGenome;
+		try {
+			testGenome = new HulkFile(p, new File("./testing/testGenome1.fa"));
+			testGenome.save("original_fragment");
+			BedInformation myBed = new BedInformation(new File("./testing/testGenome1.bed"), new File("/tmp"));
+			HulkFile randomCopyInInterval = testGenome.copy(5, myBed, BedMode.RAND);
+			randomCopyInInterval.save("randomCopyInInterval");
+			List<String> lines = HulkTestUtils.getStringsFromFile(randomCopyInInterval.getFileAbs());
+			assertEquals(lines.get(0), "TTCAT");
+		} catch (Exception e) {
+			e.printStackTrace();
+		}
+
+	}
+}

@@ -1,0 +1,7 @@
+package at.ac.univie.knasmueller.hulk;
+
+public interface ILogger {
+
+	public void createLogEntry(String message, String eventName);
+	
+}

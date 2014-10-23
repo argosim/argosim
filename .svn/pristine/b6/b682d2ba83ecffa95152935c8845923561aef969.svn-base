@@ -1,0 +1,325 @@
+package at.ac.univie.knasmueller.hulk;
+
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.Map;
+import java.util.Random;
+
+import at.ac.univie.knasmueller.hulk.BedInformation.BedMode;
+import at.cibiv.ngs.tools.lds.GenomicInterval;
+import at.cibiv.ngs.tools.util.FileUtils;
+
+public class HulkFile {
+	HulkProject hulkProject;
+	File originalFile, tempCopyFile;
+	boolean isRemoved;
+	int tempFileId;
+
+	enum MutationType {
+		VcfMutation, PointMutation
+	}
+
+	public enum ConstructorType {
+		HulkCopy, HulkNoCopy
+	}
+
+	public int getTempFileId() {
+		return tempFileId;
+	}
+
+	public void setTempFileId(int tempFileId) {
+		this.tempFileId = tempFileId;
+	}
+
+	private void copyFileToTemp(File from, File to) throws IOException {
+		if (!from.exists()) {
+			throw new IOException("Could not find source-file: " + from);
+		}
+		InputStream is = null;
+		OutputStream os = null;
+		try {
+			is = new FileInputStream(from);
+			os = new FileOutputStream(to);
+			byte[] buffer = new byte[1024];
+			int length;
+			while ((length = is.read(buffer)) > 0) {
+				os.write(buffer, 0, length);
+			}
+		} finally {
+			is.close();
+			os.close();
+		}
+	}
+
+	public HulkFile(HulkProject hulkProject, File file) throws IOException {
+		this(hulkProject, file, ConstructorType.HulkCopy);
+	}
+
+	public HulkFile(HulkProject hulkProject, File file, ConstructorType ct)
+			throws IOException {
+		/* creates a copy of the file to the tempDir */
+		/**
+		 * ConstructorType specifies whether a temporary copy of the file should
+		 * be created or not
+		 **/
+		this.hulkProject = hulkProject;
+		if (ct == ConstructorType.HulkCopy) {
+			File tempCopy = FileUtils.createTempFile(
+					this.hulkProject.getTempDir(), "hulkFile_");
+			System.out.println("Copy file to temp: " + file + ", " + tempCopy);
+			copyFileToTemp(file, tempCopy);
+			this.originalFile = file;
+			this.tempCopyFile = tempCopy;
+			this.isRemoved = false;
+			this.tempFileId = this.addTempFile(); // TODO tempFileId not
+													// meaningful right now
+		} else {
+			/* no copying necessary, just take the file as a temp file */
+			this.originalFile = file;
+			this.tempCopyFile = file;
+			this.isRemoved = false;
+			this.tempFileId = this.addTempFile();
+		}
+
+	}
+
+	int addTempFile() {
+		System.out.println("Add temp file: " + this.getFileAbs());
+		return this.hulkProject.addTempFile(this);
+	}
+
+	int addTempFile(File file) {
+		System.out.println("Add temp file: " + file);
+		return this.hulkProject.addTempFile(file);
+	}
+
+	public void remove() {
+		/* removes this file from the tempDir */
+
+		// check if file actually exists
+		if (!this.getFileAbs().exists())
+			throw new RuntimeException("Tried to delete a non-existing file: "
+					+ this.getFileAbs());
+
+		{
+			boolean success = this.getFileAbs().delete();
+			if (!success) {
+				throw new RuntimeException("Could not delete the file "
+						+ this.getFileAbs());
+			}
+		}
+
+		this.hulkProject.tempFiles.remove(this.tempFileId);
+
+	}
+
+	public HulkFile insert(HulkFile insertFile, EventPosition pos)
+			throws IOException {
+
+		PasteEvent pe = new PasteEvent(this.getFileAbs(),
+				insertFile.getFileAbs(), this.hulkProject.getTempDir(), pos,
+				this.hulkProject.getILogger());
+		File result = (File) pe.processSequence();
+		HulkFile resultHulk = new HulkFile(this.hulkProject, result,
+				ConstructorType.HulkNoCopy);
+		/* use HulkNoCopy because processSequence already creates a temp file */
+		return resultHulk;
+
+	}
+
+	public File getFileAbs() {
+		/**
+		 * returns absolute path of this temp dir
+		 */
+		return tempCopyFile;
+	}
+
+	public HulkFile copy(EventPosition pos, long length) throws IOException {
+		CopyEvent ce = new CopyEvent(this.getFileAbs(),
+				this.hulkProject.getTempDir(), pos, length,
+				this.hulkProject.getILogger());
+		File result = (File) ce.processSequence();
+		HulkFile resultHulk = new HulkFile(this.hulkProject, result,
+				ConstructorType.HulkNoCopy);
+		resultHulk.addTempFile(new File(this.getFileAbs() + ".cix"));
+		/*
+		 * use HulkNoCopy because processSequence() already creates a temp file
+		 * in the temp dir
+		 */
+
+		return resultHulk;
+	}
+
+	/**
+	 * copies a fragment of length length from any of the intervals
+	 * 
+	 * @param length
+	 * @param bed
+	 * @param bedMode
+	 * @return
+	 * @throws IOException
+	 */
+	public HulkFile copy(long length, BedInformation bed, BedMode bedMode)
+			throws IOException {
+		if (bedMode != BedMode.RAND) {
+			throw new IllegalArgumentException(
+					"Only bedMode RAND is possible for copy events");
+		}
+		EventPosition position;
+		GenomicInterval gi = bed.getRandomInterval();
+		int startPosition = (int) getRandomRegionFromInterval(gi, length);
+		position = new SpecifiedPosition(this.getFileAbs(), gi.getChr(),
+				startPosition);
+		System.out
+				.println("Successfully retrieved random position from BED file: "
+						+ startPosition + " @ " + gi.getChr());
+		CopyEvent ce = new CopyEvent(this.getFileAbs(),
+				this.hulkProject.getTempDir(), position, length,
+				this.hulkProject.getILogger());
+		File result = (File) ce.processSequence();
+		HulkFile resultHulk = new HulkFile(this.hulkProject, result,
+				ConstructorType.HulkNoCopy);
+		resultHulk.addTempFile(new File(this.getFileAbs() + ".cix"));
+		/*
+		 * use HulkNoCopy because processSequence() already creates a temp file
+		 * in the temp dir
+		 */
+
+		return resultHulk;
+	}
+
+	public static long getRandomRegionFromInterval(GenomicInterval gi,
+			long length) {
+		if (gi.getWidth() < length) {
+			throw new RuntimeException(
+					"Could not create region from interval: parameter 'length' is larger than interval-width");
+		} else if (gi.getWidth() - length < 1e-10 /*
+												 * why would someone return
+												 * length as a double??
+												 */) {
+			return gi.getLeftPosition().get0Position();
+		} else {
+			long minPos = gi.getLeftPosition().get0Position();
+			long maxPos = minPos + (gi.getWidth().longValue() - length);
+			Random randomGenerator = new Random();
+			int randomInt = (int) (randomGenerator
+					.nextInt((int) (maxPos - minPos)) + minPos);
+			/* generates a start-position between incl. minPos and excl. maxPos */
+			return randomInt;
+		}
+	}
+
+	public HulkFile[] cut(EventPosition pos, long length) throws IOException {
+		CutEvent ce = new CutEvent(this.getFileAbs(),
+				this.hulkProject.getTempDir(), pos, (int) length,
+				this.hulkProject.getILogger());
+		@SuppressWarnings("unchecked")
+		Map<String, File> cutResults = (Map<String, File>) ce.processSequence();
+		File cutFragment = cutResults.get("cutFragment");
+		File remainder = cutResults.get("remainder");
+		HulkFile cutFragmentHulk = new HulkFile(this.hulkProject, cutFragment,
+				ConstructorType.HulkNoCopy);
+		HulkFile remainderHulk = new HulkFile(this.hulkProject, remainder,
+				ConstructorType.HulkNoCopy);
+		/* use HulkNoCopy because processSequence already creates 2 temp files */
+
+		HulkFile[] hfs = { cutFragmentHulk, remainderHulk };
+
+		return hfs;
+	}
+
+	public HulkFile mutate(HulkVcfFile vcf, HulkBedFile regionRestriction)
+			throws Exception {
+		HulkFile returnFile = mutate(MutationType.VcfMutation, vcf,
+				regionRestriction, 0);
+		returnFile.addTempFile();
+		return returnFile;
+	}
+
+	public HulkFile mutate(double mutationProbability,
+			HulkBedFile regionRestriction) throws Exception {
+		return mutate(MutationType.PointMutation, null, regionRestriction,
+				mutationProbability);
+	}
+
+	public HulkFile mutate(double mutationProbability) throws Exception {
+		return mutate(MutationType.PointMutation, null, null,
+				mutationProbability);
+	}
+
+	public HulkFile mutate(HulkVcfFile vcf) throws Exception {
+		return mutate(MutationType.VcfMutation, vcf, null, 0);
+	}
+
+	private HulkFile mutate(MutationType mutationType, HulkVcfFile vcf,
+			HulkBedFile regionRestriction, double mutationProbability)
+			throws Exception {
+		MutationEvent me = null;
+		if (mutationType == MutationType.PointMutation) {
+			me = new PointMutationEvent(this.getFileAbs(),
+					this.hulkProject.getTempDir(), mutationProbability,
+					this.hulkProject.iLogger);
+		} else if (mutationType == MutationType.VcfMutation) {
+
+			me = new VCFMutationEvent(this.getFileAbs(),
+					this.hulkProject.getTempDir(),
+					vcf.getVcf() /* TODO Changeme */, this.hulkProject.iLogger);
+		} else {
+			throw new RuntimeException("Unsupported MutationType");
+		}
+		File resultFile = (File) me.processSequence();
+		this.addTempFile(resultFile);
+		return new HulkFile(this.hulkProject, resultFile);
+	}
+
+	public void save() throws IOException {
+		/**
+		 * saves this file to the result-folder using a generated name
+		 */
+		this.save(null);
+	}
+
+	public void save(String fileName) throws IOException {
+		/**
+		 * saves this file to the result-folder, naming it fileName.
+		 */
+
+		System.out.println("Attempt to save for fileName = " + fileName);
+
+		if (fileName == null) {
+			fileName = "result";
+		}
+		InputStream is = null;
+		OutputStream os = null;
+		try {
+			File outFile = new File(this.hulkProject.getResultDir() + "/"
+					+ fileName + ".fasta");
+			int i = 1;
+			while (outFile.exists()) {
+				outFile = new File(this.hulkProject.getResultDir() + "/"
+						+ fileName + "_" + i + ".fasta");
+				i++;
+			}
+			System.out.println("outFile: " + outFile);
+			is = new FileInputStream(getFileAbs());
+			os = new FileOutputStream(outFile);
+			byte[] buffer = new byte[1024];
+			int length;
+			while ((length = is.read(buffer)) > 0) {
+				os.write(buffer, 0, length);
+			}
+		} finally {
+			is.close();
+			os.close();
+		}
+	}
+
+	public static void main(String[] args) {
+		
+	}
+
+}

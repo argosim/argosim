@@ -1,0 +1,25 @@
+package at.ac.univie.knasmueller.hulk;
+
+import java.io.File;
+import java.io.IOException;
+
+public abstract class MutationEvent extends GenAmbEvent {
+
+	public MutationEvent(String name, File seqIn, File tempDir, ILogger iLogger) {
+		super(name, seqIn, tempDir, iLogger);
+	}
+	
+
+	@Override
+	public abstract Object processSequence() throws IOException;
+
+
+	/**
+	 * @param args
+	 */
+	public static void main(String[] args) {
+		// TODO Auto-generated method stub
+
+	}
+
+}
